@@ -1,0 +1,58 @@
+services:
+  voice:
+    build:
+      context: .
+      dockerfile: DockerFile.voice
+
+    container_name: voice-to-text
+
+    restart: unless-stopped
+    init: true
+
+    ports:
+      - "8010:8000"
+
+    environment:
+      # Local Windows/Docker Desktop test defaults.
+      # Change to cuda only after NVIDIA GPU passthrough works.
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cuda}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
+
+      # Use "small" for the first quick local test.
+      # Change to "large-v3" to match the original script.
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+
+      WHISPER_BEAM_SIZE: ${WHISPER_BEAM_SIZE:-5}
+      WHISPER_VAD_FILTER: ${WHISPER_VAD_FILTER:-true}
+
+      # URL transcription is useful for local testing only.
+      # Keep this false in production unless URLs are resolved/validated internally.
+      ALLOW_URL_TRANSCRIPTION: ${ALLOW_URL_TRANSCRIPTION:-true}
+
+      # Safety limits.
+      MAX_AUDIO_BYTES: ${MAX_AUDIO_BYTES:-52428800}
+      AUDIO_DOWNLOAD_TIMEOUT_SECONDS: ${AUDIO_DOWNLOAD_TIMEOUT_SECONDS:-60}
+
+    volumes:
+      # Avoid downloading the Whisper model every time the container is recreated.
+      - whisper_model_cache:/root/.cache/huggingface
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read(1)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+volumes:
+  whisper_model_cache:

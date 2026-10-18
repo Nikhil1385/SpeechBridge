@@ -1,0 +1,67 @@
+# syntax=docker/dockerfile:1
+
+# Keep the same CUDA/Ubuntu family used by the server.
+# This image can still run in CPU mode locally; Docker Compose below does not
+# require the NVIDIA runtime for the local CPU test.
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+ARG PYTHON_VERSION=3.11.9
+
+WORKDIR /app
+
+# Match the server approach: Ubuntu 22.04 + stable Python 3.11.9.
+RUN sed -i \
+    -e 's|http://archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' \
+    -e 's|http://security.ubuntu.com/ubuntu|https://security.ubuntu.com/ubuntu|g' \
+    /etc/apt/sources.list
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    g++ \
+    make \
+    curl \
+    ca-certificates \
+    libssl-dev \
+    zlib1g-dev \
+    libbz2-dev \
+    libreadline-dev \
+    libsqlite3-dev \
+    libffi-dev \
+    liblzma-dev \
+    libgdbm-dev \
+    libncursesw5-dev \
+    uuid-dev \
+    xz-utils \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL \
+    "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz" \
+    -o /tmp/python.tgz \
+    && tar -xzf /tmp/python.tgz -C /tmp \
+    && cd "/tmp/Python-${PYTHON_VERSION}" \
+    && ./configure --prefix=/usr/local --with-ensurepip=install \
+    && make -j"$(nproc)" \
+    && make altinstall \
+    && rm -rf "/tmp/Python-${PYTHON_VERSION}" /tmp/python.tgz
+
+RUN ln -sf /usr/local/bin/python3.11 /usr/local/bin/python \
+    && ln -sf /usr/local/bin/pip3.11 /usr/local/bin/pip
+
+RUN python -m pip install --upgrade pip setuptools wheel
+
+COPY requirements.txt /tmp/requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install --timeout 300 --retries 10 -r /tmp/requirements.txt
+
+COPY app /app/app
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
